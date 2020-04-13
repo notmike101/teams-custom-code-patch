@@ -1,0 +1,15 @@
+{
+  "name": "teams-custom-patcher",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.19.2",
+    "ws": "^7.2.3"
+  }
+}
