@@ -3,6 +3,8 @@
 By Mike Orozco  
 https://mikeorozco.dev
 
+## NOTE: THIS DOES NOT WORK ANYMORE. THANK YOU MICROSOFT.
+
 ## How To Use
 
 1. Install the LATEST version of NodeJs & NPM
