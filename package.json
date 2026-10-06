@@ -1,15 +1,35 @@
 {
   "name": "teams-custom-patcher",
   "version": "1.0.0",
-  "description": "",
+  "description": "Local native Teams CSS/JS companion for Windows WebView2",
   "main": "index.js",
+  "type": "module",
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  },
   "scripts": {
-    "inject": "node index.js"
+    "inject": "node index.js",
+    "start": "node index.js",
+    "test": "node --test test/*.test.js",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "npm run lint -- --fix",
+    "build:windows": "pwsh -NoProfile -File scripts/build-windows.ps1"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^0.21.1",
-    "ws": "^7.2.3"
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@notmike101/eslint-config-js": "file:vendor/notmike101-eslint-config-js-4.0.5.tgz",
+    "@notmike101/eslint-config-jsdoc": "file:vendor/notmike101-eslint-config-jsdoc-1.0.1.tgz",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsdoc": "^62.9.0",
+    "eslint-plugin-sort-class-members": "^1.22.1",
+    "eslint-plugin-unicorn": "^64.0.0",
+    "globals": "^17.13.0"
   }
 }

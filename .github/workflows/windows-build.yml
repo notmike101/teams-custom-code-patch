@@ -1,0 +1,60 @@
+name: Windows build
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows x64 candidate
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up pinned build Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: '24.21.0'
+      - name: Install locked development dependencies
+        shell: pwsh
+        run: npm ci
+      - name: Lint
+        shell: pwsh
+        run: npm run lint
+      - name: Test
+        shell: pwsh
+        run: npm test
+      - name: Build self-contained unsigned assets
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/build-windows.ps1 -ProvisionInno
+      - name: Identify exact output files
+        id: assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          if ($version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw 'Invalid package version.' }
+          foreach ($name in @("TeamsCustom-$version-windows-x64-setup.exe", "TeamsCustom-$version-windows-x64-portable.zip", 'SHA256SUMS')) {
+            if (-not (Test-Path -LiteralPath (Join-Path dist $name) -PathType Leaf)) { throw "Missing asset: $name" }
+          }
+          "setup=dist/TeamsCustom-$version-windows-x64-setup.exe" >> $env:GITHUB_OUTPUT
+          "portable=dist/TeamsCustom-$version-windows-x64-portable.zip" >> $env:GITHUB_OUTPUT
+      - name: Upload candidate assets only
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: teams-custom-windows-x64
+          path: |
+            ${{ steps.assets.outputs.setup }}
+            ${{ steps.assets.outputs.portable }}
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
