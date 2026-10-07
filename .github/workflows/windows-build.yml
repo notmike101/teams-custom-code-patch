@@ -3,16 +3,20 @@ name: Windows build
 on:
   push:
     branches: [master]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   build:
     name: Windows x64 candidate
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      published: ${{ steps.release.outputs.published }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      artifact-digest: sha256:${{ steps.upload.outputs.artifact-digest }}
+      artifact-name: teams-custom-windows-x64-${{ github.run_attempt }}
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
@@ -24,20 +28,59 @@ jobs:
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: '24.21.0'
+      - name: Derive stable CI version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = (Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json).version
+          if ($source -cnotmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z') { throw 'Invalid source package version.' }
+          $components = $source.Split('.')
+          if (@($components[0..1] | Where-Object { [decimal] $_ -gt 65535 }).Count -gt 0 -or
+              $env:GITHUB_RUN_NUMBER -cnotmatch '\A[1-9][0-9]{0,4}\z' -or [int] $env:GITHUB_RUN_NUMBER -gt 65535) {
+            throw 'CI version components must fit 0..65535; run-number patch must fit 1..65535.'
+          }
+          "version=$($components[0]).$($components[1]).$env:GITHUB_RUN_NUMBER" >> $env:GITHUB_OUTPUT
+      - name: Preserve an already published master run
+        id: release
+        if: github.repository == 'notmike101/teams-custom-code-patch' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: ./.github/scripts/release.ps1 -Mode Check
+      - name: Set CI checkout package and lock versions only
+        if: steps.release.outputs.published != 'true'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm version $env:RELEASE_VERSION --no-git-tag-version --ignore-scripts --allow-same-version
+          if ($LASTEXITCODE -ne 0) { throw 'Updating CI checkout version failed.' }
       - name: Install locked development dependencies
+        if: steps.release.outputs.published != 'true'
         shell: pwsh
         run: npm ci
       - name: Lint
+        if: steps.release.outputs.published != 'true'
         shell: pwsh
         run: npm run lint
       - name: Test
+        if: steps.release.outputs.published != 'true'
         shell: pwsh
         run: npm test
+      - name: Test release integrity guard
+        if: steps.release.outputs.published != 'true'
+        shell: pwsh
+        run: pwsh -NoProfile -File ./.github/scripts/release.test.ps1
       - name: Build self-contained unsigned assets
+        if: steps.release.outputs.published != 'true'
         shell: pwsh
         run: pwsh -NoProfile -File ./scripts/build-windows.ps1 -ProvisionInno
       - name: Identify exact output files
         id: assets
+        if: steps.release.outputs.published != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -48,13 +91,47 @@ jobs:
           }
           "setup=dist/TeamsCustom-$version-windows-x64-setup.exe" >> $env:GITHUB_OUTPUT
           "portable=dist/TeamsCustom-$version-windows-x64-portable.zip" >> $env:GITHUB_OUTPUT
-      - name: Upload candidate assets only
+      - name: Upload exact candidate assets
+        id: upload
+        if: steps.release.outputs.published != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: teams-custom-windows-x64
+          name: teams-custom-windows-x64-${{ github.run_attempt }}
           path: |
             ${{ steps.assets.outputs.setup }}
             ${{ steps.assets.outputs.portable }}
             dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
+
+  publish:
+    name: Publish exact master candidate
+    needs: build
+    if: >-
+      needs.build.result == 'success' &&
+      needs.build.outputs.published != 'true' &&
+      github.repository == 'notmike101/teams-custom-code-patch' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: automatic-release-v${{ needs.build.outputs.version }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out trusted release guard without credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Verify exact artifact and publish without replacing anything
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact-digest }}
+          ARTIFACT_NAME: ${{ needs.build.outputs.artifact-name }}
+        run: ./.github/scripts/release.ps1 -Mode Publish
